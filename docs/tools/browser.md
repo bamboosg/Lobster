@@ -428,6 +428,51 @@ High-level flow:
 This design keeps the agent on a stable, deterministic interface while letting
 you swap local/remote browsers and profiles.
 
+### Per-driver control mechanism
+
+The `driver` field on each browser profile determines *how* the control server
+reaches the browser. There are three modes:
+
+**`openclaw` — local-managed (default)**
+
+1. OpenClaw launches Chrome/Brave/Edge/Chromium with
+   `--remote-debugging-port=<cdpPort>` (default range: 18800–18899).
+2. Playwright connects to `http://127.0.0.1:<cdpPort>`.
+3. Tool calls (`act`, `snapshot`, `screenshot`, `pdf`, …) are dispatched via
+   the Playwright API, which translates them to CDP commands internally.
+4. For operations that don't need Playwright (tab listing, basic navigation),
+   the control server uses the CDP HTTP/JSON endpoints directly.
+
+The browser process is owned and supervised by OpenClaw: start/stop/reset are
+all supported.
+
+**`extension` — local-extension-relay**
+
+1. The Chrome MV3 extension calls `chrome.debugger.attach()` on the tab the
+   user selected (toolbar badge turns `ON`).
+2. The extension opens a WebSocket connection to the local relay server
+   (default: `http://127.0.0.1:18792`).
+3. The relay server exposes a standard CDP HTTP facade. CDP commands from the
+   control service are forwarded over the relay WebSocket to the extension,
+   which forwards them to the tab via `chrome.debugger.sendCommand()`.
+4. CDP events travel the same path in reverse: tab → extension → relay → control
+   server.
+
+Because the extension bridges CDP at the tab level, OpenClaw can drive an
+already-open tab in your normal Chrome window without launching a separate
+browser process. Only the tab(s) you explicitly attach (toolbar button) are
+ever touched.
+
+**remote CDP**
+
+1. The control server connects directly to the `cdpUrl` you configured (e.g.
+   a cloud browserless service or a Chrome instance started with
+   `--remote-debugging-port` on another machine).
+2. If the endpoint supports the standard CDP HTTP discovery (`/json/version`),
+   Playwright attaches as a remote client; otherwise, the control server talks
+   to the CDP WebSocket directly.
+3. OpenClaw does not launch or supervise the remote browser — it only attaches.
+
 ## CLI quick reference
 
 All commands accept `--browser-profile <name>` to target a specific profile.
@@ -671,3 +716,26 @@ How it maps:
   - If a browser-capable node is connected, the tool may auto-route to it unless you pin `target="host"` or `target="node"`.
 
 This keeps the agent deterministic and avoids brittle selectors.
+
+## Beyond the browser: what else can be controlled
+
+The `browser` tool is one surface of a broader control system. The same agent
+session can also use:
+
+| Tool | What it controls |
+|------|-----------------|
+| `exec` / `process` | Shell commands and long-running processes on the host (or sandbox) |
+| `read` / `write` / `apply_patch` | Files within the agent's workspace |
+| `message` / `sessions_send` | Send messages across channels (WhatsApp, Telegram, Slack, Discord, …) |
+| `canvas` | Agent-editable HTML/CSS/JS UI surface rendered in the gateway |
+| `nodes` | macOS/iOS/Android companion apps (camera, screen recording, voice, location) |
+| `cron` | Schedule recurring jobs |
+| `web_fetch` / `web_search` | HTTP requests and web searches (SSRF-guarded) |
+| `memory` | Persistent key/value and vector memory |
+| `tts` | Text-to-speech output |
+| `pdf` | PDF parsing |
+| `image` | Image generation and processing |
+| `gateway` | Gateway introspection (status, config, connected nodes) |
+| `sessions_list` / `sessions_history` | Query active sessions and chat history |
+
+See [Tools overview](/tools) for the full list and configuration options.

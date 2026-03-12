@@ -1,13 +1,13 @@
 # 🎙️ swabble — Speech.framework wake-word hook daemon (macOS 26)
 
-swabble is a Swift 6.2 wake-word hook daemon. The CLI targets macOS 26 (SpeechAnalyzer + SpeechTranscriber). The shared `SwabbleKit` target is multi-platform and exposes wake-word gating utilities for iOS/macOS apps.
+swabble is a Swift 6.2 wake-word hook daemon. The CLI targets macOS 26 (SpeechAnalyzer + SpeechTranscriber). The shared `SwabbleKit` target is multi-platform (iOS 17+ / macOS 15+) and exposes wake-word gating utilities for iOS/macOS apps.
 
 - **Local-only**: Speech.framework on-device models; zero network usage.
 - **Wake word**: Default `clawd` (aliases `claude`), optional `--no-wake` bypass.
-- **SwabbleKit**: Shared wake gate utilities (gap-based gating when you provide speech segments).
+- **SwabbleKit**: Shared wake gate utilities — gap-based segment-aware gating (`WakeWordGate.match`) plus `WakeWordSpeechSegments` helpers for `SFTranscription` integration.
 - **Hooks**: Run any command with prefix/env, cooldown, min_chars, timeout.
-- **Services**: launchd helper stubs for start/stop/install.
-- **File transcribe**: TXT or SRT with time ranges (using AttributedString splits).
+- **Services**: `service install|uninstall` write/remove a real launchd plist at `~/Library/LaunchAgents/com.swabble.agent.plist` and print the matching `launchctl` command; `start|stop|restart` are foreground placeholders.
+- **File transcribe**: TXT or SRT with time ranges (NLTokenizer sentence splits + AttributedString).
 
 ## Quick start
 ```bash
@@ -47,17 +47,20 @@ targets: [
 ```
 
 ## CLI
-- `serve` — foreground loop (mic → wake → hook)
-- `transcribe <file>` — offline transcription (txt|srt)
-- `test-hook "text"` — invoke configured hook
-- `mic list|set <index>` — enumerate/select input device
+- `serve` — foreground loop (mic → wake word match → strip wake → hook)
+- `transcribe <file> [--locale <id>] [--format txt|srt] [--output <path>] [--censor] [--max-length <n>]` — offline transcription
+- `test-hook "text"` — invoke configured hook (requires config)
+- `mic list` — enumerate input devices
+- `mic set <index>` — save device index to config
 - `setup` — write default config JSON
-- `doctor` — check Speech auth & device availability
+- `doctor` — check Speech auth, config validity, and mic count
 - `health` — prints `ok`
-- `tail-log` — last 10 transcripts
-- `status` — show wake state + recent transcripts
-- `service install|uninstall|status` — user launchd plist (stub: prints launchctl commands)
-- `start|stop|restart` — placeholders until full launchd wiring
+- `tail-log` — last 10 transcripts from the rolling store
+- `status` — show wake enabled/word + last 3 transcripts
+- `service install` — write `~/Library/LaunchAgents/com.swabble.agent.plist` and print `launchctl load -w` command
+- `service uninstall` — remove plist and print `launchctl bootout` command
+- `service status` — report whether the plist is installed
+- `start|stop|restart` — placeholders (print instructions; full launchd wiring not yet implemented)
 
 All commands accept Commander runtime flags (`-v/--verbose`, `--json-output`, `--log-level`), plus `--config` where applicable.
 
@@ -78,12 +81,13 @@ All commands accept Commander runtime flags (`-v/--verbose`, `--json-output`, `-
   },
   "logging": {"level": "info", "format": "text"},
   "transcripts": {"enabled": true, "maxEntries": 50},
-  "speech": {"localeIdentifier": "en_US", "etiquetteReplacements": false}
+  "speech": {"localeIdentifier": "<system locale>", "etiquetteReplacements": false}
 }
 ```
 
 - Config path override: `--config /path/to/config.json` on relevant commands.
-- Transcripts persist to `~/Library/Application Support/swabble/transcripts.log`.
+- `speech.localeIdentifier` defaults to `Locale.current.identifier` on the host machine.
+- Transcripts persist to `~/Library/Application Support/swabble/transcripts.log` (rolling 100-entry window; `maxEntries` in config is currently unused by `TranscriptsStore`).
 
 ## Hook protocol
 When a wake-gated transcript passes min_chars & cooldown, swabble runs:
@@ -96,9 +100,10 @@ Environment variables:
 - plus any `hook.env` key/values
 
 ## Speech pipeline
-- `AVAudioEngine` tap → `BufferConverter` → `AnalyzerInput` → `SpeechAnalyzer` with a `SpeechTranscriber` module.
-- Requests volatile + final results; the CLI uses text-only wake gating today.
-- Authorization requested at first start; requires macOS 26 + new Speech.framework APIs.
+- `AVAudioEngine` tap → `BufferConverter` (sample-rate conversion via `AVAudioConverter`) → `AnalyzerInput` → `SpeechAnalyzer` with a `SpeechTranscriber` module.
+- Requests volatile + final results; the `serve` command uses text-only wake matching (`WakeWordGate.matchesTextOnly` / `WakeWordGate.stripWake`).
+- `SpeechPipeline` and `TranscribeCommand` both require macOS 26 / iOS 26 (`@available(macOS 26.0, iOS 26.0, *)`).
+- Authorization requested at first start via `SFSpeechRecognizer.requestAuthorization`.
 
 ## Development
 - Format: `./scripts/format.sh` (uses local `.swiftformat`)

@@ -2,92 +2,140 @@
 
 ## Overview
 
-OpenClaw is a **personal AI assistant** that runs on your own devices and integrates with multiple messaging platforms (WhatsApp, Telegram, Slack, Discord, Signal, iMessage, and 15+ others). The system is built around a central **Gateway** that orchestrates agent interactions and message routing across all connected channels.
+OpenClaw is a **personal AI assistant gateway** that bridges 20+ messaging platforms (WhatsApp,
+Telegram, Slack, Discord, Signal, iMessage, BlueBubbles, IRC, Microsoft Teams, Matrix, Feishu,
+LINE, Mattermost, Nextcloud Talk, Nostr, Synology Chat, Tlon, Twitch, Zalo, Zalo Personal,
+WebChat) to configurable AI agents powered by OpenAI, Anthropic, Google, GitHub Copilot, Qwen,
+and other model providers.
 
 **Core Technology Stack:**
-- Runtime: Node.js ≥22
-- Language: TypeScript
-- Package Managers: npm, pnpm, or bun
-- Build/Runtime Optimization: Module compile cache, code splitting
+
+- Runtime: Node.js >=22 (also runs via Bun)
+- Language: TypeScript (ESM, strict mode)
+- Package Managers: npm, pnpm (primary), bun
+- Build Tool: tsdown (Rollup-based bundler)
+- Test Framework: Vitest
+
+---
+
+## Repository Layout
+
+```
+.
++-- src/                   # Core TypeScript source code
++-- extensions/            # First-party channel/feature extensions (npm workspace packages)
++-- ui/                    # Web UI (Vite + Lit web components)
++-- apps/
+|   +-- macos/             # macOS menubar app (Swift/SwiftUI)
+|   +-- ios/               # iOS app (Swift/SwiftUI)
+|   +-- android/           # Android app (Kotlin)
++-- docs/                  # Mintlify documentation source
++-- scripts/               # Build, release, and lint scripts
++-- skills/                # Bundled agent skills
++-- packages/              # Shared npm packages
+```
 
 ---
 
 ## High-Level Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        CLI/ENTRY POINT                          │
-│  (entry.ts → index.ts → cli/program.ts)                        │
-└────────────┬────────────────────────────────────────────────────┘
-             │
-             ├─────────────────────────────────────────┐
-             │                                         │
-             ▼                                         ▼
-    ┌──────────────────┐                    ┌──────────────────┐
-    │   GATEWAY        │                    │   COMMANDS       │
-    │  (Multi-channel  │                    │  (CLI commands)  │
-    │   message hub)   │                    │  - agents        │
-    └──────────────────┘                    │  - auth          │
-             │                              │  - config        │
-             │                              └──────────────────┘
-             ▼
-    ┌─────────────────────────────────────────┐
-    │          MESSAGE ROUTING                │
-    │   (resolve-route.ts, bindings.ts)      │
-    └──────────────────┬──────────────────────┘
-                       │
-         ┌─────────────┼─────────────┐
-         ▼             ▼             ▼
-    ┌────────────┐ ┌──────────┐ ┌──────────────┐
-    │ CHANNELS   │ │ AGENTS   │ │ PROVIDERS    │
-    │ (Telegram, │ │ (Model   │ │ (Auth, LLM   │
-    │ Discord,   │ │ execution)│ │ integrations)│
-    │ Slack, etc)│ │          │ │              │
-    └────────────┘ └──────────┘ └──────────────┘
++--------------------------------------------------------------------+
+|                        CLI / ENTRY POINT                           |
+|  openclaw.mjs -> src/entry.ts -> src/index.ts -> src/cli/program.ts|
++------------------+-------------------------------------------------+
+                   |
+          +--------+----------------------------------------+
+          v                                                 v
++-----------------+                             +---------------------+
+|    GATEWAY      |                             |     COMMANDS        |
+| (src/gateway/)  |                             | (src/commands/)     |
+| Central message |                             | CLI: agents, auth,  |
+| hub / WebSocket |                             | config, status...   |
+| server          |                             +---------------------+
++-------+---------+
+        |
+        v
++-------------------+
+|  MESSAGE ROUTING  |
+|  (src/routing/)   |
+|  resolve-route    |
+|  session-key      |
+|  bindings         |
++-------+-----------+
+        |
+   +----+------------------------+
+   v                             v
++-----------+          +------------------+
+|  AGENTS   |          |   CHANNELS       |
+|(src/      |          | (src/telegram/   |
+| agents/)  |          |  src/discord/    |
+| LLM exec  |          |  src/slack/      |
+|           |          |  extensions/*/)  |
++-----------+          +------------------+
 ```
 
 ---
 
-## Core Modules
+## Module Reference
 
-### 1. **CLI & Entry Points** (`src/cli/`, `src/entry.ts`, `src/index.ts`)
+### 1. Entry Points (`src/entry.ts`, `src/index.ts`, `openclaw.mjs`)
 
-**Purpose:** Command-line interface and application bootstrap.
+**Purpose:** CLI bootstrap, argument normalization, and program initialization.
 
-**Key Files:**
-- `entry.ts` - Main entry wrapper (spawning, argument normalization, respawn policy)
-- `index.ts` - CLI exports and initialization
-- `cli/program.ts` - Commander.js program definition
-- `cli/argv.ts` - CLI argument parsing and validation
-- `cli/profile.ts` - CLI profile management (debug profiles)
-- `cli/run-main.js` - CLI execution entry point
-- `cli/windows-argv.ts` - Windows argument normalization
-- `cli/respawn-policy.ts` - Node.js respawn/restart logic for experimental features
-- `cli/prompt.ts` - User prompts (yes/no dialogs)
-- `cli/deps.ts` - Default dependencies initialization
-
-**Key Functions:**
-- `buildProgram()` - Builds the Commander program with all commands
-- `normalizeWindowsArgv()` - Windows CLI argument handling
-- `parseCliProfileArgs()` - Parses CLI profile flags
-- Entry point respawn logic for Node.js experimental warnings
+| File | Role |
+|------|------|
+| `openclaw.mjs` | Top-level Node.js shim; sets `--experimental-vm-modules` flags and invokes `dist/entry.js` |
+| `src/entry.ts` | Respawn policy, compile-cache enablement, experimental-warning suppression, fast-path for `--version`/`--help` |
+| `src/index.ts` | Exports `buildProgram()` which wires all sub-commands via Commander.js |
+| `src/runtime.ts` | `RuntimeEnv` type + `defaultRuntime` / `createNonExitingRuntime()` -- abstracts `console.log/error` and `process.exit` |
+| `src/globals.ts` | Module-level flags: `isVerbose()`, `setVerbose()`, `isYes()`, `setYes()`, `logVerbose()`, palette helpers |
+| `src/logger.ts` | Structured logging: `logInfo()`, `logWarn()`, `logSuccess()`, `logError()`, `logDebug()` |
+| `src/logging.ts` | Lower-level log routing (file sinks, log levels) |
+| `src/version.ts` | `getVersion()` -- reads version from `package.json` |
+| `src/utils.ts` | Generic helpers: `sleep()`, `retry()`, `deferred()`, `asyncPool()`, truncation, etc. |
 
 ---
 
-### 2. **Gateway** (`src/gateway/`)
+### 2. CLI Layer (`src/cli/`)
 
-**Purpose:** Central message hub orchestrating all channel integrations and agent communication.
+**Purpose:** Command-line interface wiring.
 
-**Key Files:**
-- `boot.ts` - Gateway bootstrap and initialization
-- `auth.ts` - Authentication and token management for channels
-- `call.ts` - Voice/call handling
-- `chat-abort.ts` - Chat cancellation/abort logic
-- `chat-sanitize.ts` - Input sanitization
-- `channel-health-monitor.ts` - Monitor channel connectivity/health
-- `channel-health-policy.ts` - Health check policies
-- `channel-status-patches.ts` - Status patch application
-- `agent-event-assistant-text.ts` - Agent event streaming
+| File | Role |
+|------|------|
+| `program.ts` | Builds the Commander.js `Command` tree; registers all top-level commands |
+| `argv.ts` | Raw `process.argv` parsing helpers |
+| `profile.ts` | `parseCliProfileArgs()` -- debug profile flag detection |
+| `respawn-policy.ts` | Decides whether `entry.ts` should respawn the process with different Node flags |
+| `prompt.ts` | `confirm()` -- yes/no prompt wrapper |
+| `deps.ts` | `createDefaultDeps()` -- builds the dependency-injection object passed to commands |
+| `windows-argv.ts` | `normalizeWindowsArgv()` -- fixes Windows CMD quoting |
+| `daemon-cli.ts` | Separate CLI entry for the `openclaw daemon` sub-program (systemd/launchd management) |
+| `progress.ts` | Progress bar / spinner helpers using `osc-progress` and `@clack/prompts` |
+
+---
+
+### 3. Gateway (`src/gateway/`)
+
+**Purpose:** The central always-on server. Accepts WebSocket connections from companion apps and the
+CLI, manages channel lifecycles, dispatches inbound messages to agents, and streams responses back.
+
+| File | Role |
+|------|------|
+| `boot.ts` | `startGateway()` -- initializes channels, binds port, registers signal handlers |
+| `server.ts` | Hono HTTP/WebSocket server setup; request authentication middleware |
+| `auth.ts` | Gateway token issuance and validation (`--token`, cookie auth, pairing auth) |
+| `client.ts` | `GatewayClient` -- connects to a running gateway over WebSocket |
+| `chat-abort.ts` | Chat cancellation/abort logic |
+| `chat-sanitize.ts` | Input sanitization before LLM dispatch |
+| `chat-threading.ts` | Reply threading within conversations |
+| `channel-health-monitor.ts` | Polls each channel adapter; reports degraded/offline state |
+| `channel-health-policy.ts` | Configurable reconnect / exponential-backoff policies |
+| `channel-status-patches.ts` | Applies incremental status deltas to the shared channel-status map |
+| `agent-event-assistant-text.ts` | Converts streaming LLM token events into channel-deliverable chunks |
+| `call.ts` | Voice/call session management |
+| `reconnect-gating.ts` | Rate-limits repeated reconnect attempts |
+| `protocol/` | Gateway WebSocket protocol schema (TypeBox-validated JSON) |
 
 **Key Responsibilities:**
 - Listen on configured ports (default 18789)
@@ -95,563 +143,713 @@ OpenClaw is a **personal AI assistant** that runs on your own devices and integr
 - Distribute agent responses back to source channels
 - Manage authentication state across channels
 - Monitor channel health and connectivity
-- Buffer and deduplicate messages
-- Handle voice/audio transcription and synthesis
 
 ---
 
-### 3. **Agents** (`src/agents/`)
+### 4. Agents (`src/agents/`)
 
-**Purpose:** Execute AI models and process conversations with tool/function calling.
+**Purpose:** Execute AI models, manage tool calling, and stream results.
 
-**Key Components:**
+#### 4a. Agent Workspace
 
-**Agent Execution:**
-- `agent-scope.ts` - Agent workspace/directory resolution
-- `agent-paths.ts` - Path management for agent files
-- `identity.ts` - Agent identity configuration (name, avatar, etc.)
-- `model-selection.ts` - Model and provider selection logic
-- `timeout.ts` - Agent execution timeout settings
-- `workspace.ts` - Agent workspace setup and validation
-- `defaults.ts` - Default models and providers
+| File | Role |
+|------|------|
+| `agent-scope.ts` | `resolveAgentDir()`, `resolveAgentWorkspaceDir()` -- map agent ID to filesystem path |
+| `agent-paths.ts` | Path helpers for agent-level directories |
+| `workspace.ts` | `ensureAgentWorkspace()` -- creates and validates workspace directory structure |
+| `defaults.ts` | `DEFAULT_MODEL`, `DEFAULT_PROVIDER` constants |
+| `identity.ts` | `resolveAgentIdentity()` -- reads `identity.yaml` for agent name/avatar |
+| `timeout.ts` | `resolveAgentTimeoutMs()` -- per-agent timeout configuration |
+| `model-selection.ts` | Model / provider picker logic (respects config overrides) |
 
-**Provider Integration:**
-- `auth-profiles.ts` - Manage authentication profiles for providers
-- `api-key-rotation.ts` - API key rotation and refresh logic
-- `auth-health.ts` - Monitor authentication health
-- `apply-patch.ts` - Dynamic patch updates to authentication
+#### 4b. Provider Auth
 
-**Advanced Features:**
-- `acp-spawn.ts` - ACP (Agent Communication Protocol) spawning
-- `anthropic-payload-log.ts` - Debug logging for Anthropic payloads
-- `announce-idempotency.ts` - Idempotency support
-- `tool-result-*` - Tool/function result processing
+| File | Role |
+|------|------|
+| `auth-profiles.ts` | `loadAuthProfiles()`, `selectAuthProfile()` -- manages multiple API-key/OAuth profiles |
+| `api-key-rotation.ts` | Rotates API keys on 429 / auth-failure; enforces cooldown windows |
+| `auth-health.ts` | `isAuthHealthy()` -- validates current credential before each request |
+| `apply-patch.ts` | Applies hot credential patches without restarting |
 
----
+#### 4c. Advanced Agent Features
 
-### 4. **Routing** (`src/routing/`)
-
-**Purpose:** Resolve and manage message routing between channels and agents.
-
-**Key Files:**
-- `resolve-route.ts` - Core routing resolution logic (largest file ~24KB)
-- `account-id.ts` - Account identifier resolution
-- `account-lookup.ts` - Account lookup utilities
-- `bindings.ts` - Channel-to-account bindings
-- `session-key.ts` - Session key generation and management
-- `session-key.continuity.ts` - Session continuity across messages
-- `default-account-warnings.ts` - Warning messages for default accounts
-
-**Key Concepts:**
-- **Route Resolution:** Determines which agent/account should handle a message
-- **Session Keys:** Track conversation context across messages
-- **Bindings:** Map channels to specific user accounts
-- **Account Lookup:** Find the right user/agent for inbound messages
+| File | Role |
+|------|------|
+| `acp-spawn.ts` | Spawns an ACP (Agent Communication Protocol) child agent |
+| `anthropic-payload-log.ts` | Debug-logs raw Anthropic request/response payloads |
+| `announce-idempotency.ts` | Prevents duplicate agent announcements on reconnect |
+| `tool-result-*.ts` | Post-processes tool/function call results before inserting into conversation |
+| `pi-embedded.ts` | `runEmbeddedPiAgent()` -- runs the Pi agent library inline |
 
 ---
 
-### 5. **Channels** (`src/channels/`)
+### 5. Auto-Reply (`src/auto-reply/`)
 
-**Purpose:** Message channel implementations (WhatsApp, Telegram, Slack, Discord, etc.).
+**Purpose:** The inbound message pipeline -- from raw channel event to LLM request and response.
 
-**Core Channel Features:**
-- `channel-config.ts` - Channel configuration schema
-- `account-summary.ts` - Account summary information
-- `account-snapshot-fields.ts` - Account field snapshots
-- `chat-type.ts` - Chat type determination (DM, group, etc.)
-- `conversation-label.ts` - Label management for conversations
-- `dock.ts` - Docking/pinning features
-- `location.ts` - Geographic location handling
-- `mention-gating.ts` - Control mentions in messages
-- `model-overrides.ts` - Channel-specific model overrides
-- `command-gating.ts` - Gate commands by channel
-
----
-
-### 6. **Integration Channels** (Messaging Platforms)
-
-#### **Telegram** (`src/telegram/`)
-- `accounts.ts` - Telegram account management
-- `account-inspect.ts` - Account inspection
-- `bot-message-context.ts` - Message context extraction
-- `bot-handlers.ts` - Message/update handlers
-- `api-logging.ts` - API call logging
-- `send.ts` - Message sending
-- `format.ts` - Message formatting
-
-#### **Discord** (`src/discord/`)
-- `accounts.ts` - Discord account/guild management
-- `account-inspect.ts` - Server/guild inspection
-- `client.ts` - Discord.js client wrapper
-- `guilds.ts` - Guild management
-- `mentions.ts` - Mention parsing
-- `monitor.ts` - Event monitoring
-- `api.ts` - Discord API integration
-- `components.ts` - Interactive components (buttons, select menus)
-
-#### **Slack** (`src/slack/`)
-- `account-inspect.ts` - Workspace/channel inspection
-- `accounts.ts` - Account management
-- `client.ts` - Bolt framework client wrapper
-- `directory-live.ts` - Live directory updates
-- `blocks.ts` - Block Kit rendering
-- `actions.ts` - Action handling
-- `monitor.ts` - Event listening
-
-#### **Signal** (`src/signal/`)
-- `client.ts` - Signal protocol client
-- `daemon.ts` - Signal daemon management
-- `format.ts` - Message formatting with chunking
-- `send.ts` - Message sending
-- `send-reactions.ts` - Reaction sending
-- `identity.ts` - Signal identity verification
-- `monitor.ts` - Inbound message monitoring
-- `probe.ts` - Signal availability probing
-
-#### **WhatsApp** (`src/whatsapp/`)
-- `normalize.ts` - JID normalization
-- `resolve-outbound-target.ts` - Resolve sending target
+| File | Role |
+|------|------|
+| `dispatch.ts` | Top-level `dispatch()` -- entry point for every inbound message |
+| `reply.ts` | Orchestrates the full reply cycle: resolve route -> build prompt -> call LLM -> stream response |
+| `model.ts` | Constructs the LLM request payload (messages, system prompt, tools) |
+| `model-runtime.ts` | Selects the correct model API client for the resolved provider |
+| `chunk.ts` | Splits long LLM responses into per-platform character-limit chunks |
+| `send-policy.ts` | Decides whether / how to send a response (rate limits, DM-only, etc.) |
+| `inbound-debounce.ts` | Debounces rapid-fire messages from the same user |
+| `command-detection.ts` | Parses `/commands` from message text |
+| `commands-registry.ts` | Registry of built-in `/commands` with handler resolution |
+| `skill-commands.ts` | Loads and registers hook/skill-defined commands |
+| `heartbeat.ts` | Periodic keepalive replies (e.g. for always-online channels) |
+| `heartbeat-reply-payload.ts` | Heartbeat message payload builder |
+| `group-activation.ts` | Group chat activation rules (mention required, etc.) |
+| `templating.ts` | System-prompt variable substitution |
+| `thinking.ts` | Handles extended-thinking / reasoning tokens |
+| `tokens.ts` | Token budget management per request |
+| `envelope.ts` | Wraps the processed message for delivery |
+| `fallback-state.ts` | Manages fallback state when primary agent is unavailable |
+| `types.ts` | Shared type definitions for the auto-reply pipeline |
 
 ---
 
-### 7. **Providers** (`src/providers/`)
+### 6. Routing (`src/routing/`)
 
-**Purpose:** LLM/AI model integrations with authentication.
+**Purpose:** Determines which agent/account should handle each inbound message.
 
-**Authentication:**
-- `github-copilot-auth.ts` - GitHub Copilot OAuth
-- `github-copilot-token.ts` - Copilot token refresh
-- `github-copilot-models.ts` - Available Copilot models
-- `qwen-portal-oauth.ts` - Alibaba Qwen OAuth
-
-**Provider Utilities:**
-- `google-shared.ts` - Google/Gemini common utilities
-- `kilocode-shared.ts` - KiloCode provider utilities
-
----
-
-### 8. **Plugin SDK** (`src/plugin-sdk/`)
-
-**Purpose:** Public API for plugin/extension developers.
-
-**Exports:**
-- `account-id.ts` - Account ID types
-- `account-resolution.ts` - Resolve account contexts
-- `acpx.ts` - Extended ACP protocol
-- `channel-config-helpers.ts` - Channel configuration utilities
-- `channel-lifecycle.ts` - Channel event lifecycle
-- `core.ts` - Core SDK types and functions
-- `fetch-auth.ts` - Fetch auth context
-- `group-access.ts` - Group access control
-- `index.ts` - Main SDK entry point
-- `compat.ts` - Backwards compatibility layer
+| File | Role |
+|------|------|
+| `resolve-route.ts` | `resolveRoute()` -- core routing resolution (largest file, ~24 KB) |
+| `account-id.ts` | `AccountId` type and parsing |
+| `account-lookup.ts` | `lookupAccount()` -- finds the local account that matches an inbound sender |
+| `bindings.ts` | `resolveBinding()` -- maps (channel, remote-id) -> local account |
+| `session-key.ts` | `buildSessionKey()` -- stable key for conversation continuity |
+| `session-key.continuity.ts` | `isContinuationOf()` -- determines if a message extends an existing session |
+| `default-account-warnings.ts` | Emits warning when messages route to the fallback default account |
 
 ---
 
-### 9. **Commands** (`src/commands/`)
+### 7. Channels (`src/channels/`)
 
-**Purpose:** Agent, auth, channel, and configuration CLI commands.
+**Purpose:** Channel-agnostic features and configuration shared across all adapters.
 
-**Command Groups:**
-- `agents.ts` - Agent commands (list, add, bind, delete, identity)
-- `agents.commands.*.ts` - Individual agent command implementations
-- `agents.bindings.ts` - Binding configuration
-- `agents.providers.ts` - Provider configuration
-- `auth-choice*.ts` - Auth selection and application (OAuth, API keys)
-- `auth-choice.apply*.ts` - Provider-specific auth application
-
----
-
-### 10. **Hooks System** (`src/hooks/`)
-
-**Purpose:** Extensibility points for agent behavior.
-
-**Key Files:**
-- `hooks.ts` - Hook registration and execution
-- `config.ts` - Hook configuration
-- `hooks-install.ts` - Hook installation
-- `hooks-status.ts` - Hook status reporting
-- `bundled-dir.ts` - Bundled hooks directory resolution
-- `gmail.ts` - Gmail integration hooks
-- `gmail-watcher.ts` - Gmail change watchers
-- `frontmatter.ts` - Script frontmatter parsing
-- `import-url.ts` - URL-based hook imports
-- `install.ts` - Installation utilities
+| File | Role |
+|------|------|
+| `channel-config.ts` | `ChannelConfig` schema (TypeBox) and accessors |
+| `account-summary.ts` | `buildAccountSummary()` -- human-readable channel account description |
+| `account-snapshot-fields.ts` | Extracts normalized fields from raw channel account data |
+| `chat-type.ts` | `ChatType` enum: `dm`, `group`, `channel`, `broadcast` |
+| `conversation-label.ts` | Add/read custom labels on conversations |
+| `dock.ts` | Pin/dock conversations in companion apps |
+| `location.ts` | Geographic location message handling |
+| `mention-gating.ts` | `isMentionRequired()`, `isMentioned()` -- group mention policy enforcement |
+| `model-overrides.ts` | Channel-level model/provider override resolution |
+| `command-gating.ts` | Gate `/commands` by channel type or permission level |
+| `plugins/` | Runtime-loaded channel plugin host: agent-tools, action handlers |
 
 ---
 
-### 11. **Memory System** (`src/memory/`)
+### 8. Messaging Platform Adapters
 
-**Purpose:** Embeddings, semantic search, and memory management.
+#### 8a. Telegram (`src/telegram/`)
 
-**Key Components:**
-- `backend-config.ts` - Memory backend configuration
-- `batch-*.ts` - Batch embedding processing (OpenAI, Gemini, Voyage)
-- `embedding-*.ts` - Embedding model management and limits
-- `embeddings-*.ts` - Embeddings utilities and debug helpers
+| File | Role |
+|------|------|
+| `accounts.ts` | Account listing, connection status |
+| `account-inspect.ts` | Retrieve account metadata (bot username, chat info) |
+| `bot-handlers.ts` | `registerHandlers()` -- grammY update handler registration |
+| `bot-message-context.ts` | Extracts structured data from a grammY `Context` |
+| `send.ts` | `sendMessage()`, `sendPhoto()`, `sendDocument()` |
+| `format.ts` | Converts Markdown to Telegram MarkdownV2 |
+| `api-logging.ts` | Verbose API call log wrapper |
+| `audit.ts` | Channel audit-log helpers |
+| `token.ts` | Bot-token storage and rotation |
+| `draft-chunking.ts` | Splits long drafts into Telegram message chunks |
 
----
+#### 8b. Discord (`src/discord/`)
 
-### 12. **Pairing System** (`src/pairing/`)
+| File | Role |
+|------|------|
+| `client.ts` | discord.js `Client` wrapper with reconnect logic |
+| `accounts.ts` | Account/guild enumeration |
+| `account-inspect.ts` | Guild/channel metadata retrieval |
+| `guilds.ts` | Guild list management |
+| `mentions.ts` | `parseMentions()` -- extract user/role mentions from message content |
+| `monitor.ts` | Event listener registration (messageCreate, interactionCreate, etc.) |
+| `api.ts` | Low-level Discord REST API helpers |
+| `components.ts` | Build interactive components (buttons, select menus) |
 
-**Purpose:** Device pairing for iMessage/BlueBubbles/Signal.
+#### 8c. Slack (`src/slack/`)
 
-**Key Files:**
-- `pairing-store.ts` - Pairing state persistence (~26KB)
-- `setup-code.ts` - Generate/validate setup codes (~11KB)
-- `pairing-challenge.ts` - Challenge-response pairing
-- `pairing-messages.ts` - Pairing message formatting
-- `pairing-labels.ts` - Pairing state labels
+| File | Role |
+|------|------|
+| `client.ts` | `@slack/bolt` `App` wrapper |
+| `accounts.ts` | Workspace listing |
+| `account-inspect.ts` | Channel / workspace metadata |
+| `blocks.ts` | Block Kit message builders |
+| `actions.ts` | Interactive action handler registration |
+| `monitor.ts` | Event listener registration |
+| `directory-live.ts` | Live user-directory updates |
 
----
+#### 8d. Signal (`src/signal/`)
 
-### 13. **Configuration** (`src/config/`)
+| File | Role |
+|------|------|
+| `client.ts` | Signal protocol client initialization |
+| `daemon.ts` | signal-cli daemon lifecycle management |
+| `monitor.ts` | Inbound message polling / event subscription |
+| `send.ts` | `sendSignalMessage()` |
+| `send-reactions.ts` | Emoji reaction sending |
+| `format.ts` | Message text formatter |
+| `identity.ts` | Signal identity verification |
+| `probe.ts` | `probeSignalAvailability()` -- health check |
 
-**Purpose:** Agent configuration, paths, and validation.
+#### 8e. WhatsApp (`src/whatsapp/`)
 
-**Key Files:**
-- `config.ts` - Main configuration loading
-- `agent-dirs.ts` - Agent directory resolution
-- `agent-limits.ts` - Agent concurrency and resource limits
-- `backup-rotation.ts` - Configuration backups
-- `bindings.ts` - Channel-account bindings config
-- `channel-capabilities.ts` - Feature detection per channel
-- `commands.ts` - Command configuration
-- `config-paths.ts` - Configuration file paths
-- Various feature configs: discord, hooks, identity, env-vars, etc.
-
----
-
-### 14. **Shared Utilities** (`src/shared/`)
-
-**Purpose:** Common types and utilities across modules.
-
-**Key Modules:**
-- `assistant-identity-values.ts` - Identity enumeration
-- `avatar-policy.ts` - Avatar selection logic
-- `chat-*.ts` - Chat message/content types
-- `device-auth.ts` - Device authentication types
-- `session-*.ts` - Session types and utilities
-- `requirements.ts` - Runtime requirement checks
-- `config-eval.ts` - Configuration evaluation
-- `operator-scope-compat.ts` - Operator scope compatibility
-
----
-
-### 15. **Infrastructure** (`src/infra/`)
-
-**Purpose:** Low-level OS/environment utilities.
-
-**Categories:**
-
-**Binary Management:**
-- `binaries.ts` - Download/manage external binaries
-- `bonjour*.ts` - mDNS/Bonjour service discovery
-- `brew.ts` - Homebrew package manager integration
-
-**Environment:**
-- `env.js` - Environment variable normalization
-- `dotenv.js` - .env file loading
-- `windows-argv.ts` - Windows-specific argument handling
-
-**Execution:**
-- `exec.ts` - Child process execution
-- `abort-signal.ts` - Abort signal handling
-- `agent-events.ts` - Agent event emission
-- `archive.ts` - Archive/tar handling
-- `backoff.ts` - Exponential backoff
-
-**Network:**
-- `ports.ts` - Port availability checking
-- `bonjour-discovery.ts` - Service discovery
-
-**System:**
-- `runtime-guard.ts` - Node.js version validation
-- `is-main.ts` - Entry point detection
-- `path-env.ts` - PATH environment management
-- `warning-filter.ts` - Process warning filtering
-- `unhandled-rejections.ts` - Unhandled rejection handler
+| File | Role |
+|------|------|
+| `normalize.ts` | `normalizeJid()` -- canonicalizes WhatsApp JID formats |
+| `resolve-outbound-target.ts` | Resolves the correct JID for an outbound send |
 
 ---
 
-### 16. **Media Processing** (`src/media/`)
+### 9. Providers (`src/providers/`)
 
-**Purpose:** Audio/video/image processing.
+**Purpose:** Authentication helpers for LLM providers that use non-standard OAuth flows.
 
-**Key Files:**
-- `audio.ts` - Audio processing (recording, playback)
-- `audio-tags.ts` - Audio metadata tags
-- `image-ops.ts` - Image manipulation
-- `ffmpeg-exec.ts` - FFmpeg command execution
-- `ffmpeg-limits.ts` - FFmpeg resource limits
-- `base64.ts` - Base64 encoding/decoding
-- `fetch.ts` - Media fetching utilities
-- `input-files.ts` - Media input file handling
-- `pdf-extract.ts` - PDF text extraction
-- `mime.ts` - MIME type detection
+| File | Role |
+|------|------|
+| `github-copilot-auth.ts` | GitHub Copilot device-flow OAuth |
+| `github-copilot-token.ts` | Access-token refresh and caching |
+| `github-copilot-models.ts` | Enumerates available Copilot models |
+| `qwen-portal-oauth.ts` | Alibaba Qwen portal OAuth flow |
+| `google-shared.ts` | Shared Google/Gemini auth helpers |
+| `kilocode-shared.ts` | KiloCode provider utilities |
 
 ---
 
-## Core Files
+### 10. Plugin SDK (`src/plugin-sdk/`)
 
-### `src/runtime.ts` - Runtime Environment
-**Purpose:** Abstraction for process I/O (logging, exit).
+**Purpose:** Stable public API surface for plugin/extension authors.
 
-**Exports:**
-```typescript
-type RuntimeEnv = {
-  log: (...args: unknown[]) => void;
-  error: (...args: unknown[]) => void;
-  exit: (code: number) => void;
-};
+| File | Role |
+|------|------|
+| `index.ts` | Main re-export barrel (all public API) |
+| `core.ts` | `PluginContext`, core lifecycle hooks |
+| `compat.ts` | Backwards-compatibility shims |
+| `account-id.ts` | `AccountId` type export |
+| `account-resolution.ts` | `resolveAccountFromMessage()` |
+| `channel-lifecycle.ts` | `onChannelConnect()`, `onChannelDisconnect()` hooks |
+| `channel-config-helpers.ts` | Helpers for reading/writing channel config |
+| `fetch-auth.ts` | Fetch-with-auth utilities for making authenticated requests |
+| `group-access.ts` | Group membership and access control helpers |
+| `acpx.ts` | Extended ACP protocol bindings |
+| `thread-ownership.ts` | Thread ownership API |
+| `telegram.ts`, `discord.ts`, `slack.ts`, `signal.ts`, `imessage.ts`, ... | Per-channel type exports |
+| `keyed-async-queue.ts` | `KeyedAsyncQueue` -- serialized per-key async queue utility |
 
-const defaultRuntime: RuntimeEnv;
-function createNonExitingRuntime(): RuntimeEnv;
+---
+
+### 11. Commands (`src/commands/`)
+
+**Purpose:** Business logic for every `openclaw <subcommand>`.
+
+| File | Role |
+|------|------|
+| `agents.ts` | `agents list`, `agents add`, `agents bind`, `agents delete` |
+| `agents.commands.*.ts` | Individual agent sub-command implementations |
+| `agents.bindings.ts` | Binding management sub-commands |
+| `agents.providers.ts` | Provider configuration sub-commands |
+| `auth-choice.ts` | Interactive auth provider selection UI |
+| `auth-choice.apply-*.ts` | Apply provider-specific auth (OpenAI, Anthropic, GitHub Copilot, Qwen, Google, etc.) |
+
+---
+
+### 12. Hooks System (`src/hooks/`)
+
+**Purpose:** User-extensible scripts that run before/after agent interactions or on schedules.
+
+| File | Role |
+|------|------|
+| `hooks.ts` | `registerHook()`, `runHook()` -- hook registry and executor |
+| `config.ts` | Hook configuration schema and loading |
+| `hooks-install.ts` | Install hooks from URL or local path |
+| `hooks-status.ts` | `getHookStatus()` -- reports installed hooks and their health |
+| `bundled-dir.ts` | Resolves the directory of built-in bundled hooks |
+| `frontmatter.ts` | Parses YAML frontmatter from hook scripts |
+| `import-url.ts` | Dynamic import from HTTPS URLs |
+| `install.ts` | Installation utilities (copy, symlink, validate) |
+| `gmail.ts` | Gmail integration hook |
+| `gmail-watcher.ts` | Gmail push-notification watcher |
+| `bundled/` | Pre-built hooks shipped with OpenClaw (e.g. web-search, calendar) |
+| `llm-slug-generator.ts` | Generates URL-safe slugs using an LLM for naming conversations |
+
+---
+
+### 13. Memory System (`src/memory/`)
+
+**Purpose:** Embedding-based semantic memory for agents.
+
+| File | Role |
+|------|------|
+| `backend-config.ts` | `MemoryBackendConfig` -- selects storage backend (SQLite, LanceDB) |
+| `embedding-models.ts` | Available embedding models and dimension mapping |
+| `embedding-limits.ts` | Token limits per embedding model |
+| `embeddings-debug.ts` | Debug output for embedding computations |
+| `embeddings-utils.ts` | Vector math utilities (cosine similarity, normalization) |
+| `batch-openai.ts` | Batch embedding via OpenAI API |
+| `batch-gemini.ts` | Batch embedding via Gemini API |
+| `batch-voyage.ts` | Batch embedding via Voyage AI API |
+
+---
+
+### 14. Pairing System (`src/pairing/`)
+
+**Purpose:** Secure device pairing for iMessage, BlueBubbles, and Signal desktop.
+
+| File | Role |
+|------|------|
+| `pairing-store.ts` | `PairingStore` -- persists pairing state to disk (~26 KB, largest file) |
+| `setup-code.ts` | `generateSetupCode()`, `validateSetupCode()` -- 6-digit pairing codes |
+| `pairing-challenge.ts` | Challenge-response protocol for pairing verification |
+| `pairing-messages.ts` | Human-readable pairing message templates |
+| `pairing-labels.ts` | State machine labels (pending, paired, revoked) |
+
+---
+
+### 15. Configuration (`src/config/`)
+
+**Purpose:** Load, validate, and access all configuration (agent definitions, channel settings, etc.).
+
+| File | Role |
+|------|------|
+| `config.ts` | `loadConfig()`, `saveConfig()` -- main config file operations |
+| `config-paths.ts` | `getConfigDir()`, `getConfigFilePath()` -- OS-appropriate config locations |
+| `agent-dirs.ts` | `resolveAgentDir()` -- per-agent directory resolution |
+| `agent-limits.ts` | Concurrency and resource limits per agent |
+| `backup-rotation.ts` | Rolling backup of config files |
+| `bindings.ts` | Binding config (channel <-> account mapping) |
+| `channel-capabilities.ts` | Feature-detection per channel (supports voice, reactions, etc.) |
+| `commands.ts` | Command configuration (enabled/disabled per channel) |
+| `sessions.ts` | `loadSessionStore()`, `saveSessionStore()` -- session persistence |
+| `discord.ts`, `hooks.ts`, `identity.ts`, `env-vars.ts` | Feature-specific config sub-schemas |
+
+---
+
+### 16. Shared Utilities (`src/shared/`)
+
+**Purpose:** Cross-cutting types and pure utility functions.
+
+| File | Role |
+|------|------|
+| `chat-message.ts` | `ChatMessage`, `MessageRole`, `ContentBlock` types |
+| `chat-history.ts` | Conversation history manipulation helpers |
+| `session-id.ts` | `generateSessionId()` |
+| `session-types.ts` | `SessionState`, `SessionMeta` types |
+| `assistant-identity-values.ts` | Canonical assistant identity enum values |
+| `avatar-policy.ts` | `resolveAvatar()` -- picks correct avatar image |
+| `device-auth.ts` | Device-level authentication type definitions |
+| `requirements.ts` | `assertRuntime()` -- checks Node and platform requirements |
+| `config-eval.ts` | Evaluates config expressions (env var interpolation) |
+| `operator-scope-compat.ts` | Legacy operator scope compatibility helpers |
+
+---
+
+### 17. Infrastructure (`src/infra/`)
+
+**Purpose:** Low-level platform utilities.
+
+#### 17a. Binary Management
+
+| File | Role |
+|------|------|
+| `binaries.ts` | Download, verify, and cache external binaries (signal-cli, ffmpeg, etc.) |
+| `archive.ts` | `.tar.gz` / `.zip` extraction |
+| `brew.ts` | Homebrew package install/check |
+
+#### 17b. Network
+
+| File | Role |
+|------|------|
+| `ports.ts` | `findAvailablePort()`, `isPortAvailable()` |
+| `bonjour-discovery.ts` | mDNS service discovery via `@homebridge/ciao` |
+| `bonjour-register.ts` | mDNS service registration |
+
+#### 17c. Process Execution
+
+| File | Role |
+|------|------|
+| `exec.ts` | `exec()`, `spawn()` wrappers with timeout and abort support |
+| `abort-signal.ts` | `AbortSignal` composition utilities |
+| `backoff.ts` | Exponential backoff with jitter |
+| `agent-events.ts` | Agent event emitter setup |
+
+#### 17d. Environment
+
+| File | Role |
+|------|------|
+| `env.js` | Environment variable normalization (loaded before TypeScript) |
+| `dotenv.js` | `.env` file loading |
+| `path-env.ts` | PATH manipulation utilities |
+| `windows-argv.ts` | Windows argument vector normalization |
+
+#### 17e. System Guards
+
+| File | Role |
+|------|------|
+| `runtime-guard.ts` | `assertNodeVersion()` -- validates Node.js >=22 |
+| `is-main.ts` | `isMainModule()` -- detects if current file is the entry point |
+| `warning-filter.ts` | Suppresses known benign Node.js `process.warning` events |
+| `unhandled-rejections.ts` | Global unhandled-rejection handler |
+
+---
+
+### 18. Media Processing (`src/media/`)
+
+**Purpose:** Audio, video, and image handling.
+
+| File | Role |
+|------|------|
+| `audio.ts` | Audio recording, playback, format conversion |
+| `audio-tags.ts` | Audio metadata (ID3 tags, duration, bitrate) |
+| `image-ops.ts` | Image resize, crop, format conversion (via `sharp`) |
+| `ffmpeg-exec.ts` | `execFfmpeg()` -- typed wrapper around FFmpeg CLI |
+| `ffmpeg-limits.ts` | Max resolution, bitrate, and duration constraints |
+| `pdf-extract.ts` | PDF text extraction via `pdfjs-dist` |
+| `base64.ts` | Media <-> Base64 conversion |
+| `fetch.ts` | Authenticated media URL fetching |
+| `input-files.ts` | Handles attached files in inbound messages |
+| `mime.ts` | `detectMime()` -- content-type detection via `file-type` |
+
+---
+
+### 19. Additional Modules
+
+| Module | Purpose |
+|--------|---------|
+| `src/sessions/` | `SessionStore` -- in-memory + persisted session lifecycle (TTL expiry, continuity detection) |
+| `src/secrets/` | `SecretStore` -- encrypted credential storage + `auditCredentials()` read-only review |
+| `src/security/` | `sanitizeMessageContent()`, per-user rate limiting, allow-list enforcement, operator scope |
+| `src/daemon/` | System service management: launchd (macOS), systemd (Linux), Task Scheduler (Windows) |
+| `src/wizard/` | Interactive setup wizard `openclaw onboard` -- `runOnboarding()`, gateway config, completion |
+| `src/media-understanding/` | Vision (`describeImage()`), transcription (`transcribeAudio()`), document extraction |
+| `src/link-understanding/` | URL content extraction via `@mozilla/readability` + Playwright fallback |
+| `src/context-engine/` | LLM context window assembly: pruning, token budgeting, memory injection |
+| `src/acp/` | Agent Communication Protocol client and child-agent spawning |
+| `src/cron/` | `schedule()` / `unschedule()` cron job management via `croner` |
+| `src/process/` | Child process lifecycle: `execWithTimeout()`, long-running spawn management |
+| `src/tui/` | `startTui()` -- Pi-library based terminal UI (`openclaw tui`) |
+| `src/tts/` | Provider-agnostic TTS: `synthesizeSpeech()` -- Edge TTS, OpenAI TTS |
+| `src/polls.ts` | `createPoll()`, `closePoll()`, `getPollResults()` -- Discord/Telegram polls |
+| `src/plugins/` | Plugin loader: scans directories, validates, calls `plugin.register()` |
+| `src/i18n/` | `t()` translation function with JSON locale files |
+| `src/markdown/` | `renderMarkdown()`, `stripMarkdown()` -- markdown-it based processing |
+| `src/compat/` | `migrateConfig()` -- versioned config migrations |
+| `src/logging/` | Log sinks with rotation, JSON formatting, level hierarchy |
+| `src/types/` | Global TypeScript type augmentations (`NodeJS.ProcessEnv`, etc.) |
+| `src/canvas-host/` | A2UI canvas renderer host for rich interactive UI in companion apps |
+| `src/browser/` | Playwright browser pool for sandboxed web automation tasks |
+| `src/node-host/` | Android Node.js runtime lifecycle management |
+
+---
+
+## Extensions (`extensions/`)
+
+Extensions are separate npm workspace packages that add optional channel support or features.
+Each extension exports a `register(ctx: PluginContext)` function called at gateway startup.
+
+### Channel Extensions
+
+| Extension | Channel | Key Files |
+|-----------|---------|-----------|
+| `extensions/telegram/` | Telegram (extension variant) | `src/channel.ts`, `src/send.ts` |
+| `extensions/discord/` | Discord (extension variant) | `src/channel.ts`, `src/send.ts` |
+| `extensions/slack/` | Slack (extension variant) | `src/channel.ts`, `src/send.ts` |
+| `extensions/signal/` | Signal (extension variant) | `src/channel.ts`, `src/daemon.ts` |
+| `extensions/whatsapp/` | WhatsApp via Baileys | `src/channel.ts`, `src/session.ts`, `src/send.ts` |
+| `extensions/imessage/` | iMessage via BlueBubbles / native | `src/channel.ts`, `src/pairing.ts` |
+| `extensions/bluebubbles/` | BlueBubbles | `src/channel.ts`, `src/api.ts` |
+| `extensions/msteams/` | Microsoft Teams via Bot Framework | `src/channel.ts`, `src/bot.ts` |
+| `extensions/matrix/` | Matrix protocol | `src/channel.ts`, `src/client.ts` |
+| `extensions/googlechat/` | Google Chat | `src/channel.ts`, `src/webhook.ts` |
+| `extensions/feishu/` | Feishu / Lark | `src/channel.ts`, `src/bot.ts` |
+| `extensions/line/` | LINE Messaging API | `src/channel.ts`, `src/send.ts` |
+| `extensions/irc/` | IRC | `src/channel.ts`, `src/client.ts` |
+| `extensions/mattermost/` | Mattermost | `src/channel.ts`, `src/client.ts` |
+| `extensions/nextcloud-talk/` | Nextcloud Talk | `src/channel.ts`, `src/api.ts` |
+| `extensions/nostr/` | Nostr protocol | `src/channel.ts`, `src/relay.ts` |
+| `extensions/synology-chat/` | Synology Chat | `src/channel.ts`, `src/webhook.ts` |
+| `extensions/tlon/` | Tlon / Urbit | `src/channel.ts`, `src/api.ts` |
+| `extensions/twitch/` | Twitch Chat | `src/channel.ts`, `src/client.ts` |
+| `extensions/zalo/` | Zalo (official API) | `src/channel.ts`, `src/send.ts` |
+| `extensions/zalouser/` | Zalo (personal account) | `src/channel.ts`, `src/session.ts` |
+
+### Feature Extensions
+
+| Extension | Purpose | Key Files |
+|-----------|---------|-----------|
+| `extensions/voice-call/` | Real-time voice calls (WebRTC / Discord voice) | `src/manager.ts`, `src/media-stream.ts` |
+| `extensions/talk-voice/` | Voice wake word + TTS for companion apps | `src/wake.ts`, `src/speak.ts` |
+| `extensions/memory-core/` | In-process SQLite vector memory | `src/store.ts`, `src/search.ts` |
+| `extensions/memory-lancedb/` | LanceDB vector memory (external process) | `src/store.ts`, `src/client.ts` |
+| `extensions/llm-task/` | Async LLM sub-task spawning | `src/task.ts`, `src/scheduler.ts` |
+| `extensions/thread-ownership/` | Per-thread agent ownership | `src/owner.ts`, `src/policy.ts` |
+| `extensions/diffs/` | Code diff rendering in messages | `src/diff.ts`, `src/format.ts` |
+| `extensions/open-prose/` | Rich text / prose rendering | `src/render.ts` |
+| `extensions/phone-control/` | Phone dialing automation | `src/dial.ts` |
+| `extensions/device-pair/` | Device pairing UI (QR codes) | `src/pair.ts`, `src/qr.ts` |
+| `extensions/lobster/` | Lobster-specific customizations | `src/index.ts` |
+| `extensions/acpx/` | Extended ACP protocol support | `src/index.ts` |
+| `extensions/copilot-proxy/` | GitHub Copilot proxy integration | `src/proxy.ts` |
+| `extensions/diagnostics-otel/` | OpenTelemetry diagnostics export | `src/tracer.ts`, `src/exporter.ts` |
+| `extensions/google-gemini-cli-auth/` | Google Gemini CLI OAuth | `src/auth.ts` |
+| `extensions/minimax-portal-auth/` | MiniMax portal OAuth | `src/auth.ts` |
+| `extensions/qwen-portal-auth/` | Qwen portal OAuth | `src/auth.ts` |
+| `extensions/shared/` | Shared utilities across extensions | `src/index.ts` |
+| `extensions/test-utils/` | Test helpers for extension authors | `src/index.ts` |
+
+---
+
+## Web UI (`ui/`)
+
+A browser-based control panel built with Vite + Lit (Web Components).
+
+| File/Dir | Role |
+|----------|------|
+| `src/main.ts` | Entry point -- bootstraps Lit app |
+| `src/app.ts` | Root `<openclaw-app>` component |
+| `src/views/` | Page-level view components (dashboard, channels, agents, settings) |
+| `src/components/` | Reusable UI components |
+| `src/api/` | Gateway REST/WebSocket client |
+| `src/state/` | Lit Signal-based reactive state |
+| `vite.config.ts` | Vite build configuration |
+
+---
+
+## Core Message Flow
+
+### Inbound Message (Channel -> Agent -> Response)
+
 ```
-
----
-
-### `src/logger.ts` - Structured Logging
-**Purpose:** Main logging interface with runtime integration.
-
-**Functions:**
-- `logInfo(message: string, runtime?: RuntimeEnv)` - Info logs
-- `logWarn(message: string, runtime?: RuntimeEnv)` - Warning logs
-- `logSuccess(message: string, runtime?: RuntimeEnv)` - Success logs
-- `logError(message: string, runtime?: RuntimeEnv)` - Error logs
-- `logDebug(message: string)` - Debug logs (file + verbose console)
-
-**Features:**
-- Subsystem-based logging (e.g., `"telegram: message received"`)
-- Integrated with runtime for terminal control
-- Structured logging to file with level filtering
-
----
-
-### `src/globals.ts` - Global State
-**Purpose:** CLI state management.
-
-**State Variables:**
-- `globalVerbose` - Verbose mode flag
-- `globalYes` - Auto-confirm mode flag
-
-**Functions:**
-- `setVerbose(v: boolean)` / `isVerbose()`
-- `setYes(v: boolean)` / `isYes()`
-- `logVerbose(message: string)` - Verbose console logging
-- `success`, `warn`, `info`, `danger` - Themed output functions
-
----
-
-### `src/extensionAPI.ts` - Plugin SDK Exports
-**Purpose:** Public API for plugin developers.
-
-**Main Exports:**
-```typescript
-export { resolveAgentDir, resolveAgentWorkspaceDir } from "./agents/agent-scope";
-export { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./agents/defaults";
-export { resolveAgentIdentity } from "./agents/identity";
-export { runEmbeddedPiAgent } from "./agents/pi-embedded";
-export { resolveAgentTimeoutMs } from "./agents/timeout";
-export { ensureAgentWorkspace } from "./agents/workspace";
-export {
-  resolveStorePath,
-  loadSessionStore,
-  saveSessionStore,
-  resolveSessionFilePath,
-} from "./config/sessions";
-```
-
----
-
-### `src/index.ts` - Main Entry Point (Browser)
-**Purpose:** CLI program export.
-
-**Exports:**
-- `buildProgram()` - Commander CLI program
-
-**Includes:**
-- Auto-reply functionality
-- Web channel monitoring
-- Configuration management
-- Session handling
-
----
-
-### `src/entry.ts` - Main Entry Point (Node.js)
-**Purpose:** CLI bootstrap with respawn logic.
-
-**Responsibilities:**
-1. Environment normalization
-2. Compile cache enablement
-3. Experimental warning suppression via respawn
-4. CLI profile application
-5. Version and help fast-paths
-6. Error handling
-
----
-
-## Message Flow Architecture
-
-### Inbound Message Flow
-```
-1. Channel receives message (Telegram, Discord, Slack, etc.)
-   ↓
-2. Channel adapter normalizes to internal format
-   ↓
+1. Channel adapter receives raw event
+   (e.g. grammY update, discord messageCreate, Baileys message)
+         |
+2. Normalize to internal ChatMessage format
+   (src/shared/chat-message.ts)
+         |
 3. Gateway receives normalized message
-   ↓
-4. Resolve routing (resolve-route.ts) determines:
-   - Which agent should handle it
-   - Session continuity
-   - Account binding
-   ↓
-5. Message sent to Agent
-   ↓
-6. Agent processes with LLM
-   ↓
-7. Response generated
-   ↓
-8. Response distributed back to source channel
-   ↓
-9. Channel adapter sends to original platform
+   (src/gateway/boot.ts)
+         |
+4. Resolve route (src/routing/resolve-route.ts)
+   +-- Look up binding: channel + sender -> local account
+   +-- Build session key for conversation continuity
+   +-- Select agent configuration
+         |
+5. Auto-reply dispatch (src/auto-reply/dispatch.ts)
+   +-- Debounce rapid messages
+   +-- Detect /commands
+   +-- Route to reply pipeline
+         |
+6. Build LLM request (src/auto-reply/model.ts)
+   +-- Assemble context window (system + history + memory)
+   +-- Attach available tools
+   +-- Apply model overrides
+         |
+7. Execute agent (src/agents/)
+   +-- Select model + provider + auth profile
+   +-- Stream tokens from LLM API
+   +-- Process tool calls iteratively
+         |
+8. Chunk and send response (src/auto-reply/chunk.ts)
+   +-- Channel adapter sends to platform
 ```
-
-### Session & Account Management
-- **Account ID:** Unique identifier for user/account
-- **Session Key:** Generated from message metadata (sender, chat ID, etc.)
-- **Bindings:** Map (channel, remote_account_id) → local_account
-- **Continuity:** Reuse same session key for follow-ups in same conversation
 
 ---
 
 ## Authentication Architecture
 
-### Provider Authentication Flow
-1. **OAuth:** GitHub Copilot, Qwen Portal (refresh token + access token)
-2. **API Keys:** OpenAI, Anthropic, Google, others
-3. **Auth Rotation:** Multiple profiles with cooldown/failover
-4. **Health Checks:** Monitor authentication validity
-
-### Channel Authentication
-- Per-channel credentials (tokens, API keys, OAuth)
-- Stored in secure auth store
-- Read-only mode for auditing (`--no-color`, `secrets audit`)
-
----
-
-## Extension System
-
-### Hooks
-- Directory-based: `~/.openclaw/hooks/`
-- Frontmatter-based configuration
-- URL imports supported
-- Lifecycle: install, status, execution
-
-### Plugin SDK
-- Public exports: agent scope, session management, channel config
-- Type definitions included
-- Backwards compatibility layer
+```
++------------------------------------------------+
+|          PROVIDER AUTH STORE                   |
+|  (src/secrets/secret-store.ts)                |
+|                                                |
+|  OpenAI API key        ----+                   |
+|  Anthropic API key     ----|                   |
+|  GitHub Copilot OAuth  ----|                   |
+|  Qwen Portal OAuth     ----|                   |
+|  Google/Gemini OAuth   ----+                   |
++------------------+-----------------------------+
+                   | rotation + health checks
+                   v
++--------------------------------------------------+
+|          AUTH PROFILE SELECTOR                   |
+|  (src/agents/auth-profiles.ts)                  |
+|                                                  |
+|  [ Profile 1  ] [ Profile 2  ] [ Profile N  ]   |
+|  [ (primary)  ] [ (fallback) ] [ (fallback) ]   |
+|                                                  |
+|  cooldown -> rotate on 429/auth-fail             |
++--------------------------------------------------+
+```
 
 ---
 
-## Configuration Schema
+## Configuration Directory Layout
 
-### Directory Structure
 ```
 ~/.openclaw/
-├── config.yaml          # Main configuration
-├── agents/              # Agent definitions
-│   ├── my-agent/
-│   │   └── config.yaml
-├── sessions/            # Session storage
-├── hooks/               # Custom hooks
-└── pairing/             # Device pairing data
++-- config.yaml              # Main gateway + agent config
++-- agents/
+|   +-- <agent-name>/
+|       +-- config.yaml      # Per-agent overrides (model, tools, hooks)
+|       +-- identity.yaml    # Agent name, avatar, description
+|       +-- workspace/       # Agent working directory
++-- sessions/
+|   +-- <session-key>.json   # Serialized conversation history
++-- hooks/
+|   +-- <hook-name>.ts       # Custom hook scripts
++-- pairing/
+|   +-- <device-id>.json     # Pairing state per device
++-- credentials/             # Channel-specific auth tokens
 ```
 
-### Channel Configuration
-- Credentials per channel
-- Model overrides
-- Mention/command gating
-- Conversation labels
+---
+
+## Extension Development Guide
+
+### Creating a Channel Extension
+
+```typescript
+// extensions/my-channel/index.ts
+import type { PluginContext } from "openclaw/plugin-sdk";
+
+export async function register(ctx: PluginContext) {
+  ctx.registerChannel({
+    id: "my-channel",
+    displayName: "My Channel",
+    async connect(config) {
+      // Initialize your channel client
+    },
+    async send(message) {
+      // Deliver message to the platform
+    },
+    async disconnect() {
+      // Clean up resources
+    },
+  });
+}
+```
+
+### Creating a Hook
+
+```typescript
+---
+name: my-hook
+description: Runs before every agent response
+on: before-reply
+---
+export async function run({ message, context }) {
+  // Modify context or message before LLM call
+  return context;
+}
+```
 
 ---
 
 ## Testing Architecture
 
-- **Test Files:** `*.test.ts` and `*.spec.ts`
-- **Test Patterns:** Unit, integration, E2E
-- **Coverage:** Auth, routing, channel adapters, agent execution
-- **Test Helpers:** Mock factories, fixtures, harnesses
+| Config File | Scope |
+|-------------|-------|
+| `vitest.unit.config.ts` | Unit tests (fast, no I/O) |
+| `vitest.gateway.config.ts` | Gateway integration tests (real WebSocket server) |
+| `vitest.channels.config.ts` | Channel adapter tests |
+| `vitest.extensions.config.ts` | Extension tests |
+| `vitest.e2e.config.ts` | End-to-end tests |
+| `vitest.live.config.ts` | Live tests (real credentials required) |
+
+**Test patterns:**
+
+- `*.test.ts` -- unit or integration
+- `*.e2e.test.ts` -- end-to-end
+- `*.live.test.ts` -- live/integration (gated by `OPENCLAW_LIVE_TEST=1`)
+- `*.test-harness.ts` -- reusable test harness factories
+- `*.mocks.ts` -- module mocks
 
 ---
 
-## Build & Deployment
+## Build System
 
-### Build System
-- TypeScript compilation → JavaScript
-- Code splitting for efficiency
-- Module compile cache for faster startup
-- Single binary wrapper: `openclaw.mjs`
+```
+pnpm build
+  +-- scripts/tsdown-build.mjs     # Runs tsdown (Rollup bundler)
+  |     +-- src/index.ts           -> dist/index.js
+  |     +-- src/entry.ts           -> dist/entry.js
+  |     +-- src/cli/daemon-cli.ts  -> dist/cli/daemon-cli.js
+  |     +-- src/plugin-sdk/*.ts    -> dist/plugin-sdk/*.js
+  |     +-- src/extensionAPI.ts    -> dist/extensionAPI.js
+  +-- scripts/write-build-info.ts  # Embeds version + git SHA
+  +-- scripts/write-cli-compat.ts  # Writes legacy CLI shim compatibility table
+  +-- pnpm ui:build                # Vite builds the web UI
+```
 
-### Distribution
-- npm/pnpm packages
+**Entry binary:** `openclaw.mjs` (shipped to npm) references `dist/entry.js`.
+
+---
+
+## Distribution
+
+- npm/pnpm package: `openclaw`
 - Version: `vYYYY.M.D` (e.g., `v2026.3.11`)
-- Channels: `latest`, `beta`, `dev`
-- Daemon: launchd (macOS) / systemd (Linux)
+- Release channels: `latest` (stable), `beta` (prereleases), `dev` (moving head of `main`)
+- Daemon installer: launchd user service (macOS), systemd user unit (Linux)
 
 ---
 
 ## Performance Considerations
 
 1. **Lazy Loading:** Gateway and agents loaded on-demand
-2. **Streaming:** Agent responses streamed to channels
+2. **Streaming:** Agent responses streamed token-by-token to channels
 3. **Debouncing:** Inbound message debouncing to reduce redundant processing
-4. **Caching:** Embeddings and memory cached
+4. **Caching:** Embeddings and memory cached between requests
 5. **Timeouts:** Configurable per-agent execution timeouts
+6. **Module compile cache:** Speeds up repeated cold starts
 
 ---
 
 ## Security
 
-1. **Auth Store:** Encrypted credential storage
-2. **Read-Only Mode:** Audit-safe configuration inspection
-3. **Input Sanitization:** Message content sanitization
-4. **Token Refresh:** Automatic OAuth token rotation
-5. **Process Isolation:** Channel handlers run with limited scope
+1. **Auth Store:** Encrypted credential storage (`src/secrets/`)
+2. **Read-Only Mode:** Audit-safe configuration inspection (`secrets audit`)
+3. **Input Sanitization:** Message content sanitization against prompt injection
+4. **Token Refresh:** Automatic OAuth token rotation with cooldown
+5. **Allow Lists:** Phone number / user ID allow-list enforcement
+6. **Operator Scope:** Per-operator permission boundaries
 
 ---
 
-## Key Development Workflow
+## Key Dependencies
 
-### Adding a New Channel
-1. Create `src/my-channel/` directory
-2. Implement: `client.ts`, `accounts.ts`, `send.ts`, `monitor.ts`
-3. Register in gateway message routing
-4. Add configuration schema
-5. Implement tests
-
-### Adding an LLM Provider
-1. Create auth in `src/providers/`
-2. Implement provider integration in agents module
-3. Add to auth selection flow
-4. Configure model mapping
-5. Add fallback/rotation support
-
-### Creating a Plugin
-1. Use Plugin SDK from `dist/plugin-sdk/`
-2. Hook into system via `src/hooks/`
-3. Access session/config via public API
-4. Distribute as npm package or local file
-
----
-
-## Dependencies & Tooling
-
-- **Runtime:** Node.js ≥22
-- **Package Managers:** npm, pnpm, bun
-- **Testing:** Vitest
-- **CLI:** Commander.js
-- **Logging:** Structured (file + console)
-- **Platform Libraries:** discord.js, node-telegram-bot-api, @slack/bolt, signal-node, etc.
+| Package | Role |
+|---------|------|
+| `commander` | CLI argument parsing |
+| `grammy` | Telegram bot framework |
+| `@buape/carbon` (discord.js wrapper, **never update**) | Discord client |
+| `@slack/bolt` | Slack Bolt app framework |
+| `@whiskeysockets/baileys` | WhatsApp Web protocol |
+| `@line/bot-sdk` | LINE Messaging API |
+| `@larksuiteoapi/node-sdk` | Feishu / Lark SDK |
+| `hono` | HTTP server (gateway) |
+| `ws` | WebSocket server/client |
+| `@sinclair/typebox` | Runtime JSON schema validation |
+| `zod` | Input validation |
+| `yaml` | YAML config file parsing |
+| `sharp` | Image processing |
+| `playwright-core` | Browser automation |
+| `pdfjs-dist` | PDF processing |
+| `sqlite-vec` | SQLite vector extension for memory |
+| `@mariozechner/pi-*` | Pi TUI and agent library |
+| `@clack/prompts` | Interactive CLI prompts |
+| `osc-progress` | Progress indicators |
+| `croner` | Cron scheduling |
+| `jiti` | TypeScript module loader (for hooks) |
+| `tslog` | Structured logging |
+| `chalk` | Terminal colors |
 

@@ -29,31 +29,21 @@
               <h2>Tạo lịch bình chọn</h2>
             </div>
           </div>
-          <div id="login-area">
-            <p class="hint">Đăng nhập bằng tài khoản admin đã được cấu hình trên Firebase để tạo lịch.</p>
-            <form id="login-form">
-              <label for="email">Email admin</label>
-              <input id="email" type="email" autocomplete="username" placeholder="admin@example.com" required />
-              <label for="password">Mật khẩu</label>
-              <input id="password" type="password" autocomplete="current-password" required />
-              <button type="submit" class="button primary">Đăng nhập <span>→</span></button>
-            </form>
-          </div>
-          <div id="create-area" hidden>
-            <div class="signed-in"><span id="admin-email"></span><button id="logout-button" type="button">Đăng xuất</button></div>
-            <form id="create-form">
-              <label for="poll-title">Tên chuyến đi</label>
-              <input id="poll-title" maxlength="80" placeholder="Ví dụ: Team building mùa hè" required />
-              <label for="date-0">Các ngày dự kiến <span class="label-note">(chọn 3 hoặc 4 ngày)</span></label>
-              <div class="date-fields">
-                <input id="date-0" type="date" required aria-label="Ngày thứ nhất" />
-                <input id="date-1" type="date" required aria-label="Ngày thứ hai" />
-                <input id="date-2" type="date" required aria-label="Ngày thứ ba" />
-                <input id="date-3" type="date" aria-label="Ngày thứ tư (không bắt buộc)" />
-              </div>
-              <button type="submit" class="button primary">Tạo link bình chọn <span>→</span></button>
-            </form>
-          </div>
+          <p class="hint">Nhập mã quản trị được lưu trong Google Apps Script để tạo lịch mới.</p>
+          <form id="create-form">
+            <label for="admin-secret">Mã quản trị</label>
+            <input id="admin-secret" type="password" autocomplete="off" required />
+            <label for="poll-title">Tên chuyến đi</label>
+            <input id="poll-title" maxlength="80" placeholder="Ví dụ: Team building mùa hè" required />
+            <label for="date-0">Các ngày dự kiến <span class="label-note">(chọn 3 hoặc 4 ngày)</span></label>
+            <div class="date-fields">
+              <input id="date-0" type="date" required aria-label="Ngày thứ nhất" />
+              <input id="date-1" type="date" required aria-label="Ngày thứ hai" />
+              <input id="date-2" type="date" required aria-label="Ngày thứ ba" />
+              <input id="date-3" type="date" aria-label="Ngày thứ tư (không bắt buộc)" />
+            </div>
+            <button type="submit" class="button primary">Tạo link bình chọn <span>→</span></button>
+          </form>
           <p class="feedback" id="setup-feedback" role="status" aria-live="polite"></p>
         </section>
 
@@ -65,7 +55,7 @@
               <h2 id="vote-title">Bình chọn ngày đi</h2>
             </div>
           </div>
-          <p class="hint">Bạn có thể chọn tối đa <strong>2 ngày</strong> phù hợp. Nhập tên để mọi người biết ai sẽ cùng tham gia nhé!</p>
+          <p class="hint">Bạn có thể chọn tối đa <strong>2 ngày</strong> phù hợp. Nhập tên để mọi người biết ai sẽ cùng tham gia nhé! Mỗi trình duyệt có thể chỉnh sửa phiếu đã gửi.</p>
           <form id="vote-form">
             <label for="voter-name">Tên của bạn</label>
             <input id="voter-name" maxlength="60" autocomplete="name" placeholder="Nhập tên của bạn..." required />

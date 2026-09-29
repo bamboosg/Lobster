@@ -1,7 +1,2 @@
-// Firebase web app configuration is public. Replace these placeholders before deployment.
-export const firebaseConfig = {
-  apiKey: "REPLACE_WITH_FIREBASE_API_KEY",
-  authDomain: "REPLACE_WITH_PROJECT_ID.firebaseapp.com",
-  projectId: "REPLACE_WITH_PROJECT_ID",
-  appId: "REPLACE_WITH_FIREBASE_APP_ID",
-};
+// Public URL of the deployed Google Apps Script web app (ending in /exec).
+export const scriptUrl = "REPLACE_WITH_APPS_SCRIPT_WEB_APP_URL";

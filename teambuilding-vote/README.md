@@ -1,23 +1,22 @@
 # Bình chọn ngày team building
 
-Trang tĩnh tiếng Việt: admin tạo lịch gồm 3–4 ngày và chia sẻ link; mỗi người nhập tên, chọn 1–2 ngày, xem kết quả cập nhật trực tiếp và có thể sửa phiếu trên cùng trình duyệt.
+Trang GitHub Pages để admin tạo lịch gồm 3–4 ngày, chia sẻ link; mỗi người nhập tên, chọn tối đa 2 ngày, xem kết quả và sửa phiếu của mình trên cùng trình duyệt. **Kết quả được lưu vào Google Sheet riêng tư**, thông qua Google Apps Script chạy bằng tài khoản chủ Sheet. GitHub Pages không thể tự lưu phiếu bầu.
 
-GitHub Pages chỉ phục vụ file tĩnh, **không lưu được phiếu bầu**. Ứng dụng sử dụng Firebase Authentication và Cloud Firestore để đồng bộ dữ liệu giữa các thiết bị. Chưa thể đưa trang vào hoạt động nếu chưa có dự án Firebase và chưa bật Pages trên repository.
+## Tạo Google Sheet và Apps Script
 
-## Thiết lập Firebase
+1. Tạo một **Google Sheet mới, không chia sẻ công khai**. Chọn **Extensions → Apps Script** để tạo dự án Apps Script gắn với Sheet. Dán toàn bộ nội dung `apps-script/Code.gs` vào file `Code.gs` và lưu.
+2. Trong Apps Script, vào **Project Settings → Script properties**, thêm thuộc tính `ADMIN_SECRET` có giá trị là chuỗi ngẫu nhiên dài **ít nhất 24 ký tự**. Đây là mã để tạo lịch; giữ bí mật, **không** ghi vào repository, `config.js` hoặc link chia sẻ. Người có mã này có thể tạo lịch mới.
+3. Chọn **Deploy → New deployment → Web app**, chọn **Execute as: Me** và **Who has access: Anyone**. Cấp quyền truy cập Sheet theo yêu cầu và sao chép URL Web app kết thúc bằng `/exec`. Quyền “Anyone” cần thiết để người nhận link có thể vote mà không đăng nhập Google; chỉ script (không phải Sheet) được truy cập công khai.
+4. Điền URL này vào `scriptUrl` trong `config.js` (chỉ có URL công khai; không có mã bí mật). Khi sửa Apps Script, cần tạo **New version** trong **Deploy → Manage deployments → Edit** để URL `/exec` dùng phiên bản mới.
 
-1. Tạo dự án trên [Firebase Console](https://console.firebase.google.com/), thêm **Web app**, tạo **Cloud Firestore**. Trong **Authentication → Sign-in method**, bật **Anonymous** và **Email/Password**.
-2. Tạo tài khoản admin tại **Authentication → Users → Add user**. Sao chép **User UID** của tài khoản này. Không chia sẻ mật khẩu admin. Nếu tài khoản Email/Password khác tự đăng ký, Firestore Rules bên dưới vẫn không cho phép họ tạo bình chọn.
-3. Sao chép nội dung `firestore.rules` vào **Firestore Database → Rules**; thay `REPLACE_WITH_ADMIN_UID` bằng UID ở bước 2 rồi **Publish**. Không dùng rules mặc định cho production.
-4. Điền cấu hình Web app vào `config.js`: `apiKey`, `authDomain`, `projectId`, `appId`. Các giá trị cấu hình Firebase Web app **không phải khóa bí mật**; quyền truy cập do Firestore Rules quyết định. Không điền mật khẩu hoặc khóa service account vào mã nguồn.
-5. Trong **Authentication → Settings → Authorized domains**, thêm `bamboosg.github.io` (và hostname tùy chỉnh nếu có). Bật giới hạn hoặc giám sát chi phí Firebase nếu triển khai công khai.
+Apps Script tự tạo tab `Polls` và `Votes` trong Sheet khi được sử dụng; không sửa tên hoặc cột của các tab này. Để hạn chế spam hoặc chi phí, chỉ chia sẻ link trong nhóm và theo dõi quotas của Google Apps Script. Mã quản trị được gửi qua HTTPS trong form POST tới Apps Script và chỉ kiểm tra với Script Properties trên máy chủ. Nếu lộ mã, thay ngay `ADMIN_SECRET`.
 
-Admin đăng nhập trên trang chủ để tạo bình chọn. Link hiển thị trên thanh địa chỉ sau khi tạo; dùng nút **Sao chép link** để gửi đồng đội. Một Firebase Anonymous UID được lưu theo trình duyệt; mỗi UID có thể lưu/cập nhật một phiếu. Việc xóa dữ liệu trình duyệt hoặc dùng trình duyệt khác sẽ tạo UID mới: đây **không phải** biện pháp chống bỏ phiếu nhiều lần. Người có link có thể xem tên và ngày được chọn của mọi người trong cuộc bình chọn; chỉ chia sẻ link trong nhóm tin cậy.
+Mỗi trình duyệt có một token ngẫu nhiên được lưu tại localStorage cho từng lịch, cho phép cập nhật phiếu đã gửi. Xóa dữ liệu trình duyệt hoặc dùng thiết bị khác sẽ tạo phiếu khác; **không đảm bảo mỗi người chỉ vote một lần**. Người có link có thể xem tên và lựa chọn của mọi người; đừng dùng cho thông tin nhạy cảm. Kết quả làm mới mỗi 30 giây (hoặc sau khi gửi phiếu).
 
 ## Đưa lên GitHub Pages
 
 1. Merge thay đổi vào nhánh `main`, rồi vào **Settings → Pages → Build and deployment**, chọn **GitHub Actions**.
-2. Workflow `Deploy team-building vote to GitHub Pages` tự triển khai thư mục này khi cập nhật trên `main` (hoặc chạy thủ công qua **Actions**). Sau khi deploy thành công, trang nằm tại **https://bamboosg.github.io/Lobster/**.
-3. Mở URL này để admin tạo poll; link `?poll=...` hoạt động trên cùng trang Pages. Nếu đổi tên repository hoặc dùng domain riêng, link được tạo tự động theo địa chỉ trang hiện tại.
+2. Workflow `Deploy team-building vote to GitHub Pages` tự triển khai thư mục này khi cập nhật trên `main` (hoặc chạy thủ công qua **Actions**). Khi deploy thành công, trang nằm tại **https://bamboosg.github.io/Lobster/**.
+3. Mở trang, nhập mã quản trị và các ngày để tạo lịch; sao chép link có `?poll=...` để gửi nhóm. Nếu đổi tên repository hoặc dùng domain riêng, link sẽ lấy theo địa chỉ trang hiện tại.
 
-Để chạy thử cục bộ, mở thư mục này qua một local HTTP server; Firebase Authentication cần một domain được cho phép (ví dụ `localhost`). Không mở trực tiếp file bằng `file://`.
+Để chạy thử cục bộ, mở thư mục qua một local HTTP server (không dùng `file://`). Apps Script web app phải được triển khai trước; chỉ thay `config.js` bằng URL deployment của bạn. Lần triển khai đầu tiên cần chủ Sheet cấp quyền cho Apps Script; không thể làm bước này tự động từ repository.

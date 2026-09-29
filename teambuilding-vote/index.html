@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f7f4ed" />
+    <title>Hẹn ngày đi team building</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <a class="brand" href="./"><span class="brand-icon">✳</span> cùng đi nhé<span class="brand-dot">.</span></a>
+        <span class="topbar-label">TEAM BUILDING PLANNER</span>
+      </header>
+
+      <main>
+        <section class="intro">
+          <span class="eyebrow"><span class="eyebrow-dot"></span> LÊN KẾ HOẠCH THẬT VUI</span>
+          <h1>Chọn ngày đẹp,<br /><em>mình cùng đi!</em></h1>
+          <p>Chốt lịch đi chơi cùng cả đội chưa bao giờ dễ đến thế. Chọn ngày phù hợp, còn lại cứ để cuộc vui lo!</p>
+        </section>
+
+        <section class="panel" id="setup-panel" hidden>
+          <div class="panel-heading">
+            <div class="step-icon">✦</div>
+            <div>
+              <span class="section-kicker">DÀNH CHO NGƯỜI TỔ CHỨC</span>
+              <h2>Tạo lịch bình chọn</h2>
+            </div>
+          </div>
+          <p class="hint">Nhập mã quản trị được lưu trong Google Apps Script để tạo lịch mới.</p>
+          <form id="create-form">
+            <label for="admin-secret">Mã quản trị</label>
+            <input id="admin-secret" type="password" autocomplete="off" required />
+            <label for="poll-title">Tên chuyến đi</label>
+            <input id="poll-title" maxlength="80" placeholder="Ví dụ: Team building mùa hè" required />
+            <label for="date-0">Các ngày dự kiến <span class="label-note">(chọn 3 hoặc 4 ngày)</span></label>
+            <div class="date-fields">
+              <input id="date-0" type="date" required aria-label="Ngày thứ nhất" />
+              <input id="date-1" type="date" required aria-label="Ngày thứ hai" />
+              <input id="date-2" type="date" required aria-label="Ngày thứ ba" />
+              <input id="date-3" type="date" aria-label="Ngày thứ tư (không bắt buộc)" />
+            </div>
+            <button type="submit" class="button primary">Tạo link bình chọn <span>→</span></button>
+          </form>
+          <p class="feedback" id="setup-feedback" role="status" aria-live="polite"></p>
+        </section>
+
+        <section class="panel vote-panel" id="vote-panel" hidden>
+          <div class="panel-heading">
+            <div class="step-icon">✦</div>
+            <div>
+              <span class="section-kicker">LỜI MỜI DÀNH CHO BẠN</span>
+              <h2 id="vote-title">Bình chọn ngày đi</h2>
+            </div>
+          </div>
+          <p class="hint">Bạn có thể chọn tối đa <strong>2 ngày</strong> phù hợp. Nhập tên để mọi người biết ai sẽ cùng tham gia nhé! Mỗi trình duyệt có thể chỉnh sửa phiếu đã gửi.</p>
+          <form id="vote-form">
+            <label for="voter-name">Tên của bạn</label>
+            <input id="voter-name" maxlength="60" autocomplete="name" placeholder="Nhập tên của bạn..." required />
+            <div class="options-header"><span>CHỌN NGÀY PHÙ HỢP</span><span id="selection-count">0 / 2 đã chọn</span></div>
+            <div id="date-options" class="date-options"></div>
+            <button type="submit" class="button primary" id="vote-submit">Gửi lựa chọn <span>→</span></button>
+          </form>
+          <p class="feedback" id="vote-feedback" role="status" aria-live="polite"></p>
+          <div class="results">
+            <div class="results-heading"><h3>Kết quả hiện tại</h3><span id="total-voters">0 người tham gia</span></div>
+            <div id="result-list"></div>
+          </div>
+          <div class="share">
+            <span>Rủ đồng đội cùng chọn ngày!</span>
+            <button id="copy-link" type="button">Sao chép link ↗</button>
+          </div>
+        </section>
+
+        <section class="panel" id="error-panel" hidden>
+          <h2>Chưa thể mở bình chọn</h2>
+          <p id="error-message" class="hint"></p>
+          <a class="button primary" href="./">Về trang chủ →</a>
+        </section>
+      </main>
+      <footer>ĐI ĐÂU CŨNG VUI, MIỄN LÀ ĐI CÙNG NHAU <span>✳</span></footer>
+    </div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

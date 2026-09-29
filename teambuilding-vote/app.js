@@ -130,12 +130,8 @@ if (
       return;
     }
     try {
-      const user = auth.currentUser || (await new Promise((resolve) => {
-        const unsubscribe = onAuthStateChanged(auth, (value) => {
-          unsubscribe();
-          resolve(value);
-        });
-      })) || (await signInAnonymously(auth)).user;
+      await auth.authStateReady();
+      const user = auth.currentUser || (await signInAnonymously(auth)).user;
       const pollRef = doc(db, "polls", pollId);
       const snapshot = await getDoc(pollRef);
       if (!snapshot.exists()) {
